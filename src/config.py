@@ -19,11 +19,12 @@ class QueryPlanConfig:
     top_k: int
     pool_size: int
     embed_model: str
-
     ensemble_method: str
     rrf_k: int
     ranker_weights: Dict[str, float]
     rerank_mode: str
+    llm_rerank_model: str
+    llm_rerank_weight: float
     seg_filter: Callable
 
     # generation
@@ -42,6 +43,9 @@ class QueryPlanConfig:
     use_hyde: bool
     hyde_max_tokens: int
     use_indexed_chunks: bool
+    
+    # re-ranking
+    rerank_pool_size: int = 20
 
     # ---------- chunking strategy + artifact name helpers ----------
     def make_strategy(self) -> ChunkStrategy:
@@ -69,14 +73,17 @@ class QueryPlanConfig:
             chunk_config   = chunk_config,
 
             # Retrieval + Ranking
-            top_k          = pick("top_k", 5),
+            top_k          = pick("top_k", 20),
             pool_size      = pick("pool_size", 60),
             embed_model    = pick("embed_model", "sentence-transformers/all-MiniLM-L6-v2"),
             ensemble_method= pick("ensemble_method", "rrf"),
             rrf_k          = pick("rrf_k", 60),
             ranker_weights = pick("ranker_weights", {"faiss":0.6,"bm25":0.4}),
             max_gen_tokens = pick("max_gen_tokens", 400),
-            rerank_mode    = pick("rerank_mode", "none"),
+            rerank_mode    = pick("rerank_mode", "improved"),
+            rerank_pool_size = pick("rerank_pool_size", 20),
+            llm_rerank_model = pick("llm_rerank_model", "microsoft/DialoGPT-medium"),
+            llm_rerank_weight = pick("llm_rerank_weight", 0.7),
             seg_filter     = pick("seg_filter", None),
             model_path     = pick("model_path", None),
             

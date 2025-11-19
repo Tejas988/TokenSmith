@@ -12,7 +12,7 @@ from src.ranking.ranker import EnsembleRanker
 from src.preprocessing.chunking import DocumentChunker
 from src.retriever import apply_seg_filter, BM25Retriever, FAISSRetriever, load_artifacts
 from src.query_enhancement import generate_hypothetical_document
-
+from src.ranking.reranker import rerank
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments for the application."""
@@ -182,6 +182,7 @@ def get_answer(
         # Step 2: Ranking
         ordered = ranker.rank(raw_scores=raw_scores)
         topk_idxs = apply_seg_filter(cfg, chunks, ordered)
+        print(f"Top-k indices count: {len(topk_idxs)}")
         logger.log_chunks_used(topk_idxs, chunks, sources)
         
         ranked_chunks = [chunks[i] for i in topk_idxs]
@@ -213,17 +214,88 @@ def get_answer(
         # Step 3: Final Re-ranking (if enabled)
         # Disabled till we fix the core pipeline
         # ranked_chunks = rerank(question, ranked_chunks, mode=cfg.rerank_mode, top_n=cfg.top_k)
+        
+        # Get a larger pool of chunks for re-ranking
+        rerank_pool_size = getattr(cfg, 'rerank_pool_size', 20)
+        rerank_pool_idxs = topk_idxs[:rerank_pool_size]  # Take more chunks from the ranked list
+        original_chunks = [chunks[i] for i in rerank_pool_idxs]
+        print(f"Number of chunks passed to re-ranker: {len(original_chunks)}")
+
     
-    # Step 4: Generation
+    # print(original_chunks,'original_chunks')
+    # Apply re-ranking if enabled
+    if cfg.rerank_mode != "none":
+        original_chunks, ranked_chunks = rerank(
+            question, 
+            original_chunks, 
+            mode=cfg.rerank_mode, 
+            top_n=cfg.top_k,
+            llm_model=getattr(cfg, 'llm_rerank_model', 'microsoft/DialoGPT-medium'),
+            llm_weight=getattr(cfg, 'llm_rerank_weight', 0.7)
+        )
+    
+    # Show both original and re-ranked results
+    # print("\n=== ORIGINAL RESULTS ===")
+    # for i, chunk in enumerate(original_chunks, 1):
+    #     print(f"\n--- Chunk {i} ---")
+    #     print(chunk[:500] + "..." if len(chunk) > 500 else chunk)
+    
+    # print("\n=== RE-RANKED RESULTS ===")
+    # for i, chunk in enumerate(ranked_chunks, 1):
+    #     print(f"\n--- Chunk {i} ---")
+    #     print(chunk[:500] + "..." if len(chunk) > 500 else chunk)
+    
+    # Use re-ranked chunks for the final answer
+    #     chunks_for_generation = ranked_chunks
+    # else:
+    #     chunks_for_generation = original_chunks
+
+    # Answer using original chunks
     model_path = args.model_path or cfg.model_path
     system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
-    ans = answer(
+    
+    print("\n=== ANSWER FROM ORIGINAL CHUNKS ===")
+    original_answer = answer(
         question, 
-        ranked_chunks, 
+        original_chunks,
         model_path, 
         max_tokens=cfg.max_gen_tokens, 
         system_prompt_mode=system_prompt
     )
+    print(original_answer)
+
+    # Answer using re-ranked chunks
+    print("\n=== ANSWER FROM RE-RANKED CHUNKS ===")
+    reranked_answer = answer(
+        question, 
+        ranked_chunks,
+        model_path, 
+        max_tokens=cfg.max_gen_tokens, 
+        system_prompt_mode=system_prompt
+    )
+    print(reranked_answer)
+
+    # Use re-ranked answer as the main answer
+    ans = reranked_answer
+
+    # Then use chunks_for_generation for the final answer generation
+    # ans = answer(
+    #     question, 
+    #     chunks_for_generation,
+    #     model_path, 
+    #     max_tokens=cfg.max_gen_tokens, 
+    #     system_prompt_mode=system_prompt
+    # )
+    # Step 4: Generation
+    # model_path = args.model_path or cfg.model_path
+    # system_prompt = args.system_prompt_mode or cfg.system_prompt_mode
+    # ans = answer(
+    #     question, 
+    #     ranked_chunks, 
+    #     model_path, 
+    #     max_tokens=cfg.max_gen_tokens, 
+    #     system_prompt_mode=system_prompt
+    # )
     
     if is_test_mode:
         return ans, chunks_info, hyde_query

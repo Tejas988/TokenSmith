@@ -74,13 +74,14 @@ def _print_preview_idxs(
 # -------------------------- Filtering logic -----------------------------
 
 def apply_seg_filter(cfg: QueryPlanConfig, chunks, ordered):
+    # print(f"apply_seg_filter: chunks={len(chunks)}, ordered={len(ordered)}")
     seg_filter = cfg.seg_filter
     if seg_filter:
         keep = [i for i in ordered if seg_filter(chunks[i])]
         back = [i for i in ordered if i not in keep]
-        topk_idxs = (keep + back)[:cfg.top_k]
+        topk_idxs = (keep + back)[:20]
     else:
-        topk_idxs = ordered[:cfg.top_k]
+        topk_idxs = ordered[:20]
     return topk_idxs
 
 
